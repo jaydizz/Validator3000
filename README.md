@@ -12,4 +12,6 @@ Connects to the ris-live websocket, validates announcements and writes the resul
 
 # Dependencies
 
+NOTE: the Local Libraries used will be published later on! 
+NOTE: All tool functionality will be eventually moved to a cpan module!
 
