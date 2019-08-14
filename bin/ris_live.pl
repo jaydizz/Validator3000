@@ -98,7 +98,7 @@ logger("Done.");
 
 my $irr_invalid_log = "../stash/invalids.log";
 my $rpki_invalid_log = "../stash/rpki_invalids.log";
-open (my $INV_LOG, '>>', $invalid_log);
+open (my $INV_LOG, '>>', $irr_invalid_log);
 open (my $RPKI_INV_LOG, '>>', $rpki_invalid_log);
 
 my $DEBUG = shift;
@@ -261,24 +261,53 @@ sub check_prefixes_rpki {
     my $prefix_length = ((split /\//, $prefix))[1]; 
     
     if ( $pt_return ) { #Lookup was successful. Prefix Exists in Tree
-      if ($pt_return->{origin}->{$origin_as}) {  #Found Origin AS as allowed AS...
-        
+      
+      #Found directly covering AS. Proceeding with Max-length comparison
+      if ($pt_return->{origin}->{$origin_as}) { 
         my $max_length = $pt_return->{origin}->{$origin_as}->{max_length};
-
-        if ($max_length == $prefix_length) { #Valid, exakt match
-          logger("RPKI: $prefix with $origin_as is rpki-valid with an exact match!") if $DEBUG;
-          $count_valid++;
-        } elsif ($max_length > $prefix_length) { #Valid, not exact
-          logger("RPKI: $prefix with $origin_as is rpki-valid with an less-spec match!") if $DEBUG;
-          $count_valid_ls++;
-        } elsif ($max_length < $prefix_length) { #Too specific!
-          logger("RPKI: $prefix with $origin_as is rpki-invalid: $prefix_length is longer than max $max_length") if $DEBUG;
-          $count_invalid_ml++;
+        
+        #Check Prefix-length;
+        given ( $max_length <=> $prefix_length ) {
+          when ( $_ == 0 ) {
+            logger("RPKI: $prefix with $origin_as is rpki-valid with an exact match!") if $DEBUG;
+            $count_valid++;
+          }
+          when ( $_ < 0 ) {
+            logger("RPKI: $prefix with $origin_as is rpki-valid with an less-spec match!") if $DEBUG;
+            $count_valid_ls++;
+          }
+          when ( $_ > 0 ) {
+            logger("RPKI: $prefix with $origin_as is rpki-invalid: $prefix_length is longer than max $max_length") if $DEBUG;
+            $count_invalid_ml++;
+          } 
         }
-      } else { #Didn't find AS. Invalid... 
+
+      } else {
+        #Look for implicit coverage
+        if ($pt_return->{implicit}->{$origin_as}) { 
+          my $max_length = $pt_return->{origin}->{$origin_as}->{max_length};
+          
+          #Check Prefix-length;
+          given ( $max_length <=> $prefix_length ) {
+            when ( $_ == 0 ) {
+              logger("RPKI: $prefix with $origin_as is rpki-valid with an exact match!") if $DEBUG;
+              $count_valid++;
+            }
+            when ( $_ < 0 ) {
+              logger("RPKI: $prefix with $origin_as is rpki-valid with an less-spec match!") if $DEBUG;
+              $count_valid_ls++;
+            }
+            when ( $_ > 0 ) {
+              logger("RPKI: $prefix with $origin_as is rpki-invalid: $prefix_length is longer than max $max_length") if $DEBUG;
+              $count_invalid_ml++;
+            } 
+          }
+        } else {
+          
           logger("RPKI: $prefix with $origin_as is rpki-invalid: AS is not allowed to announce!") if $DEBUG;
           $count_invalid++;
           file_logger($RPKI_INV_LOG, "$prefix with $origin_as is invalid!");
+        }
       }
     } else { #Prefix not found... booring.
       logger("RPKI: $prefix with $origin_as is not found") if $DEBUG;
@@ -342,7 +371,7 @@ sub check_prefixes_irr {
         if ( $pt_return->{implicit}->{$origin_as} ) { #Prefix is implicitely covered by less-spec. 
           $count_valid_impl++;
         } else { #We tried everything but... 
-          file_logger($INV_LOG "$origin_as announced invalid prefix $prefix!");
+          file_logger($INV_LOG ,"$origin_as announced invalid prefix $prefix!");
           $count_invalid++;
         }
       }
@@ -383,7 +412,7 @@ sub get_formated_time {
   my $time = sprintf '%02d:%02d:%02d : ', $h, $min, $sec;
 }
 
-sub file_logger {
+sub logger {
   my $msg = shift;
   my $color = shift || 'reset';
   my $time = get_formated_time();
@@ -395,9 +424,9 @@ sub file_logger {
   STDOUT->flush();
 }
 
-sub logger {
-  my $msg = shift;
+sub file_logger {
   my $file = shift or die("No file specified in file_logger");
+  my $msg = shift;
   my $time = get_formated_time();
   print $file "$time";
   say   $file "$msg";
