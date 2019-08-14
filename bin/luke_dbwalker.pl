@@ -38,22 +38,24 @@ use Local::addrinfo qw( by_cidr mk_iprange_lite mk_iprange is_subset);
 use 5.10.0;
 
 my %opts;
-getopts( 'i:o:d:b:r', \%opts ) or usage();
+getopts( 'iodbr', \%opts ) or usage();
 
 our $VERSION = "1.0";
 
 my $irr_dir  = $opts{i} || '../db/irr/';
-my $irr_flag = $opts{b} ||  1;
+my $irr_flag = $opts{b} ||  0;
 my $rpki_flag = $opts{r} || 1;
 my $rpki_dir  = $opts{p} || '../db/rpki/';
 my $output_dir = $opts{o} || '../stash/';
 my $debug_flag = $opts{d} || undef;
 
-my $rpki_out_v4 = "$output_dir/rpki-patricia-v4.storable";
-my $rpki_out_v6 = "$output_dir/rpki-patricia-v6.storable";
 
-my $irr_out_v4 = "$output_dir/irr-patricia-v4.storable";
-my $irr_out_v6 = "$output_dir/irr-patricia-v6.storable";
+my $output_files = {
+  rpki_out_v4    => "$output_dir/rpki-patricia-v4.storable",
+  rpki_out_v6    => "$output_dir/rpki-patricia-v6.storable",
+  irr_out_v4    => "$output_dir/irr-patricia-v4.storable",
+  irr_out_v6    => "$output_dir/irr-patricia-v6.storable",
+};  
 
 # Patricia Tree for lookup.
 #my $pt_irr_v4 = new Net::Patricia;
@@ -63,11 +65,11 @@ my $pt_rpki_v4 = new Net::Patricia;
 my $pt_rpki_v6 = new Net::Patricia AF_INET6;
 
 # Hashrefs for route-collection. Will be written into the trie.
-my $stash_irr_v4;
-my $stash_irr_v6;
+my $stash_irr_v4 = {};
+my $stash_irr_v6 = {};
 
-my $stash_rpki_v4;
-my $stash_rpki_v6;
+my $stash_rpki_v4 = {};
+my $stash_rpki_v6 = {};
 
 my @irr_files = glob("$irr_dir*");
 my @rpki_files = glob("$rpki_dir*");
@@ -118,32 +120,20 @@ if ($irr_flag) {
       }
 
       if ( $routeobject_found && $_ =~ /origin:\s+(AS\d+)/ ) {
-        if ($routeobject_found == 4) {
-          $stash_irr_v4->{$prefix}->{length} = $mask;
-          $stash_irr_v4->{$prefix}->{origin}->{$1} = 1;
-          $stash_irr_v4->{$prefix}->{prefix} = $prefix;
-          
-          #Additionally calculate base and end ip for easier sorting and containment checks. 
-          my $ip_range = mk_iprange($prefix);
-          $stash_irr_v4->{$prefix}->{ base_n } = $ip_range->{base_n};
-          $stash_irr_v4->{$prefix}->{ last_n } = $ip_range->{last_n};
-          $stash_irr_v4->{$prefix}->{ base_p } = $ip_range->{base_p};
-          $stash_irr_v4->{$prefix}->{ last_p } = $ip_range->{last_p};
-          $stash_irr_v4->{$prefix}->{ version } = $ip_range->{version};
-
-        } else {
-          $stash_irr_v6->{$prefix}->{length} = $mask;
-          $stash_irr_v6->{$prefix}->{origin}->{$1} = 1;
-          $stash_irr_v6->{$prefix}->{prefix} = $prefix;
-          
-          #Additionally calculate base and end ip for easier sorting and containment checks. 
-          my $ip_range = mk_iprange($prefix);
-          $stash_irr_v6->{$prefix}->{ base_n } = $ip_range->{base_n};
-          $stash_irr_v6->{$prefix}->{ last_n } = $ip_range->{last_n};
-          $stash_irr_v6->{$prefix}->{ base_p } = $ip_range->{base_p};
-          $stash_irr_v6->{$prefix}->{ last_p } = $ip_range->{last_p};
-          $stash_irr_v6->{$prefix}->{ version } = $ip_range->{version};
-        }
+        
+        my $stash = $routeobject_found == 6 ? $stash_irr_v6 : $stash_irr_v4; 
+        
+        $stash->{$prefix}->{length} = $mask;
+        $stash->{$prefix}->{origin}->{$1} = 1;
+        $stash->{$prefix}->{prefix} = $prefix;
+        
+        #Additionally calculate base and end ip for easier sorting and containment checks. 
+        my $ip_range = mk_iprange($prefix);
+        $stash->{$prefix}->{ base_n } = $ip_range->{base_n};
+        $stash->{$prefix}->{ last_n } = $ip_range->{last_n};
+        $stash->{$prefix}->{ base_p } = $ip_range->{base_p};
+        $stash->{$prefix}->{ last_p } = $ip_range->{last_p};
+        $stash->{$prefix}->{ version } = $ip_range->{version};
         
         if ($debug_flag) {
           say "found $prefix : $origin_as";
@@ -171,8 +161,8 @@ if ($irr_flag) {
   # AS's as userdata. Storing the same prefix with different userdata directly into the Patricia Trie
   # just overwrites the old node. 
   #
-  digest_irr_and_write($stash_irr_v4);
-  digest_irr_and_write($stash_irr_v6);
+  digest_hash_and_write($stash_irr_v4, "irr_out_v4");
+  digest_hash_and_write($stash_irr_v6, "irr_out_v6");
   
 }
 
@@ -195,39 +185,35 @@ if ($rpki_flag) {
     
     while (<$FH>) {
       my ($origin_as, $prefix, $max_length) = split /,/, $_;
+     
+      my $stash = (index $prefix, ":") > 0 ? $stash_rpki_v6 : $stash_rpki_v4; 
       
-      if ( (index $prefix, ":") > 0) {#v6
-        $stash_rpki_v6->{$prefix}->{origin}->{$origin_as}->{max_length} = $max_length;
-        $stash_rpki_v6->{$prefix}->{prefix} = $prefix;
-      } else { 
-        $stash_rpki_v4->{$prefix}->{origin}->{$origin_as}->{max_length} = $max_length;
-        $stash_rpki_v4->{$prefix}->{prefix} = $prefix;
-      }
+      $stash->{$prefix}->{origin}->{$origin_as}->{max_length} = $max_length;
+      $stash->{$prefix}->{prefix} = $prefix;
+      
+      my $ip_range = mk_iprange($prefix);
+      $stash->{$prefix}->{ base_n } = $ip_range->{base_n};
+      $stash->{$prefix}->{ last_n } = $ip_range->{last_n};
+      $stash->{$prefix}->{ base_p } = $ip_range->{base_p};
+      $stash->{$prefix}->{ last_p } = $ip_range->{last_p};
+      $stash->{$prefix}->{ version } = $ip_range->{version};
+      
       if (($counter % 1000 ) == 0) {
         last if $debug_flag;
         my $duration = time - $start;
         logger_no_newline("processed $counter ROAs in $duration seconds");
       }
       $counter++;
+      $DB::single = 1;
     } 
-    print "\n"  #Flush stdout.
-  } 
+    print "\n";  #Flush stdout.
+    my $duration = time - $start;
+    logger("Done. It took $duration seconds to find $counter prefixes", 'green');
+  }
   
-  # Contruct the tree
-  foreach my $prefix ( sort keys %$stash_rpki_v4 ) {
-    eval {
-      $pt_rpki_v4->add_string($prefix, $stash_rpki_v4->{$prefix});
-    }; if ($@) {
-      die "FUCK! $prefix, $stash_rpki_v4->{$prefix}";
-    }
-  }
-  foreach my $prefix ( keys %$stash_rpki_v6 ) {
-    $pt_rpki_v6->add_string($prefix, $stash_rpki_v6->{$prefix});
-  }
+  digest_hash_and_write($stash_rpki_v6, "rpki_out_v6");
+  digest_hash_and_write($stash_rpki_v4, "rpki_out_v4");
 
-
-  store ($pt_rpki_v4, "$rpki_out_v4");
-  store ($pt_rpki_v6, "$rpki_out_v6");
 }
 
 exit(0);
@@ -244,9 +230,11 @@ exit(0);
 # Then builds a Patricia-Trie from the data and stores it to disk.
 #
 
-sub digest_irr_and_write {
-  logger("Digesting IRR Hash.");
+sub digest_hash_and_write {
   my $stash_ref = shift;
+  my $case = shift;
+  logger("Digesting $case Hash.");
+
 
   my $af_inet;
   my @sorted;
@@ -291,7 +279,7 @@ sub digest_irr_and_write {
     $pt->add_string($prefix->{prefix}, $prefix);
   }
    
-  my $store = $af_inet == AF_INET ? $irr_out_v4 : $irr_out_v6;
+  my $store = $output_files->{$case};
   store ( $pt, $store );
   logger("Done.", 'green');
 }
