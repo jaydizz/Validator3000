@@ -38,7 +38,7 @@ use Data::Dumper;
 use 5.10.0;
 
 my %opts;
-getopts( 'i:o:db:rp:', \%opts ) or usage();
+getopts( 'i:o:db:r:p:', \%opts ) or usage();
 
 our $VERSION = "1.0";
 
@@ -257,22 +257,20 @@ sub digest_hash_and_write {
   # we can skip to the next one.
   #
   
-  while ( $i < $#sorted ) {
+  while ( $i <= $#sorted ) {
     my $j = $i + 1; #We look at the next entry in the sorted list.
-    while ( is_subset($sorted[$j], $sorted[$i] ) ) {
-
+    
+    while ( $j <= $#sorted && is_subset($sorted[$j], $sorted[$i] ) ) {
       my $tmp_hash = dclone( $sorted[$i]->{origin} ); #Create a true copy of our hash.
       foreach my $as ( keys %$tmp_hash ) {
         #If an AS is already present in the origins, we don't want to mark it as implicit. Also if it already inherits an implicit, don't overwrite it.
         $tmp_hash->{$as}->{implicit} = 1 unless (defined $sorted[$j]->{origin}->{$as}) || (defined $tmp_hash->{$as}->{implicit}); 
       }
-      $DB::single = 1; 
       %{ $sorted[$j]->{origin} } = ( %{ $sorted[$j]->{origin} }, %$tmp_hash ); #Append additional Origins.
       $j++;
     }
     $i++;
   }
-
   my $pt;
   logger("Creating and Writing the Trie.");
   if ($af_inet == AF_INET) {
