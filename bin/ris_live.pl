@@ -334,22 +334,22 @@ sub check_prefixes_irr {
 
     if ( $pt_return) { #If defined, we found something. 
       if ( $pt_return->{origin}->{$origin_as} ) { #If the return Hash contains a key with the origin_as, it is valid
-        if ( $pt_return->{length} == $prefix_length ) { # ro covers exactly
+        my $as_hash = $pt_return->{origin}->{$origin_as};
+        if ( $as_hash->{implicit} ) {
+          logger("IRR: $prefix with $origin_as is valid, implicitely covered!") if $DEBUG;
+          $count_valid_impl++;
+        } elsif ( $pt_return->{length} == $prefix_length ) { # ro covers exactly
           logger("IRR: $prefix with $origin_as is valid, exact coverage!") if $DEBUG;
           $count_valid++;
         } else { #Is explicitely covered by a less-spec. Means: No exact route-object!
           logger("IRR: $prefix with $origin_as is valid, less-specific coverage!") if $DEBUG;
           $count_valid_ls++;
         }
-      } else { # Might be invalid.
-        if ( $pt_return->{implicit}->{$origin_as} ) { #Prefix is implicitely covered by less-spec. 
-          $count_valid_impl++;
-        } else { #We tried everything but... 
-          file_logger($INV_LOG ,"$origin_as announced invalid prefix $prefix!");
-          $count_invalid++;
+      } else { #Invalid
+        file_logger($INV_LOG ,"$origin_as announced invalid prefix $prefix!");
+        $count_invalid++;
         }
-      }
-   } else {
+    } else {
       logger("IRR: $prefix with $origin_as is not found") if $DEBUG;
       $count_not_found++;     
    }
