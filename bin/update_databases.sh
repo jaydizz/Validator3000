@@ -23,5 +23,6 @@ cd ../rpki
 for f in *; do mv "$f" old/""${f%}"_$(date '+%Y_%m_%d-%H')"; done
 routinator vrps > current
 
+cd /home/debian/ba/bin/
 /home/debian/ba/bin/luke_dbwalker.pl
 systemctl reload ris-live
