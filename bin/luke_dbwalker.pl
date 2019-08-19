@@ -38,18 +38,18 @@ use Local::addrinfo qw( by_cidr mk_iprange_lite mk_iprange is_subset);
 use 5.10.0;
 
 my %opts;
-getopts( 'iodbr', \%opts ) or usage();
+getopts( 'i:o:db:rp:', \%opts ) or usage();
 
 our $VERSION = "1.0";
 
 my $irr_dir  = $opts{i} || '../db/irr/';
-my $irr_flag = $opts{b} ||  0;
+my $irr_flag = defined $opts{b} ? $opts{b} : 1;
 my $rpki_flag = $opts{r} || 1;
 my $rpki_dir  = $opts{p} || '../db/rpki/';
 my $output_dir = $opts{o} || '../stash/';
 my $debug_flag = $opts{d} || undef;
 
-
+print $rpki_dir; 
 my $output_files = {
   rpki_out_v4    => "$output_dir/rpki-patricia-v4.storable",
   rpki_out_v6    => "$output_dir/rpki-patricia-v6.storable",
@@ -204,15 +204,14 @@ if ($rpki_flag) {
         logger_no_newline("processed $counter ROAs in $duration seconds");
       }
       $counter++;
-      $DB::single = 1;
     } 
     print "\n";  #Flush stdout.
     my $duration = time - $start;
     logger("Done. It took $duration seconds to find $counter prefixes", 'green');
   }
   
-  digest_hash_and_write($stash_rpki_v6, "rpki_out_v6");
   digest_hash_and_write($stash_rpki_v4, "rpki_out_v4");
+  digest_hash_and_write($stash_rpki_v6, "rpki_out_v6");
 
 }
 
@@ -261,12 +260,17 @@ sub digest_hash_and_write {
   while ( $i < $#sorted ) {
     my $j = $i + 1; #We look at the next entry in the sorted list.
     while ( is_subset($sorted[$j], $sorted[$i] ) ) {
-      $sorted[$j]->{implicit} = $sorted[$i]->{origin};
+      if ( !$sorted[$j]->{implicit} ) { #If not defined, we create, ortherwise append
+        $sorted[$j]->{implicit} = $sorted[$i]->{origin};
+      } else {
+        %{$sorted[$j]->{implicit}} = ( %{$sorted[$j]->{implicit}} , %{ $sorted[$i]->{origin} } ) ;
+      }
       $j++;
     }
-    $i = $j++;
+    $i++;
   }
 
+  $DB::single = 1;
   my $pt;
   logger("Creating and Writing the Trie.");
   if ($af_inet == AF_INET) {

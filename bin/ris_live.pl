@@ -130,7 +130,10 @@ while(1) {
   $ua->inactivity_timeout(0);
   $ua->websocket('ws://ris-live.ripe.net/v1/ws/?client=ba-test' => sub {
     my ($ua, $tx) = @_;
-    logger('WebSocket handshake failed!', 'red') and return unless $tx->is_websocket;
+    if ( !$tx->is_websocket ) {  
+      logger('WebSocket handshake failed!', 'red');
+      Mojo::IOLoop->stop();
+    }
     $tx->on(json => sub {
       my ($tx, $hash) = @_;
       digest_and_write($hash->{data});
@@ -285,7 +288,7 @@ sub check_prefixes_rpki {
       } else {
         #Look for implicit coverage
         if ($pt_return->{implicit}->{$origin_as}) { 
-          my $max_length = $pt_return->{origin}->{$origin_as}->{max_length};
+          my $max_length = $pt_return->{implicit}->{$origin_as}->{max_length};
           
           #Check Prefix-length;
           given ( $max_length <=> $prefix_length ) {
