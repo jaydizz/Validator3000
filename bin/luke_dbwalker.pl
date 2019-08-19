@@ -30,11 +30,11 @@ The Patricia Trie holds IP-objects. On Match, a hashref is returned, holding val
 use strict;
 use warnings;
 use Getopt::Std;
-use Storable qw(dclone);
+use Storable qw(store dclone);
 use Net::Patricia;
 use Term::ANSIColor;
 use Local::addrinfo qw( by_cidr mk_iprange_lite mk_iprange is_subset);
-
+use Data::Dumper;
 use 5.10.0;
 
 my %opts;
@@ -44,12 +44,12 @@ our $VERSION = "1.0";
 
 my $irr_dir  = $opts{i} || '../db/irr/';
 my $irr_flag = defined $opts{b} ? $opts{b} : 1;
-my $rpki_flag = $opts{r} || 1;
+my $rpki_flag = defined $opts{r} ? $opts{r} : 1;
 my $rpki_dir  = $opts{p} || '../db/rpki/';
 my $output_dir = $opts{o} || '../stash/';
 my $debug_flag = $opts{d} || undef;
 
-print $rpki_dir; 
+print $irr_dir; 
 my $output_files = {
   rpki_out_v4    => "$output_dir/rpki-patricia-v4.storable",
   rpki_out_v6    => "$output_dir/rpki-patricia-v6.storable",
@@ -124,7 +124,7 @@ if ($irr_flag) {
         my $stash = $routeobject_found == 6 ? $stash_irr_v6 : $stash_irr_v4; 
         
         $stash->{$prefix}->{length} = $mask;
-        $stash->{$prefix}->{origin}->{$1} = 1;
+        $stash->{$prefix}->{origin}->{$1}->{source} = $file;
         $stash->{$prefix}->{prefix} = $prefix;
         
         #Additionally calculate base and end ip for easier sorting and containment checks. 
@@ -263,15 +263,16 @@ sub digest_hash_and_write {
 
       my $tmp_hash = dclone( $sorted[$i]->{origin} ); #Create a true copy of our hash.
       foreach my $as ( keys %$tmp_hash ) {
-         $tmp_hash->{$as}->{implicit} = 1 unless defined $sorted[$j]->{origin}->{$as}; #If an AS is already present in the origins, we don't want to mark it as implicit
-      } 
+        #If an AS is already present in the origins, we don't want to mark it as implicit. Also if it already inherits an implicit, don't overwrite it.
+        $tmp_hash->{$as}->{implicit} = 1 unless (defined $sorted[$j]->{origin}->{$as}) || (defined $tmp_hash->{$as}->{implicit}); 
+      }
+      $DB::single = 1; 
       %{ $sorted[$j]->{origin} } = ( %{ $sorted[$j]->{origin} }, %$tmp_hash ); #Append additional Origins.
       $j++;
     }
     $i++;
   }
 
-  $DB::single = 1;
   my $pt;
   logger("Creating and Writing the Trie.");
   if ($af_inet == AF_INET) {
