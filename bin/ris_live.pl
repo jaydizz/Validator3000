@@ -264,58 +264,29 @@ sub check_prefixes_rpki {
     my $prefix_length = ((split /\//, $prefix))[1]; 
     
     if ( $pt_return ) { #Lookup was successful. Prefix Exists in Tree
-      
-      #Found directly covering AS. Proceeding with Max-length comparison
-      if ($pt_return->{origin}->{$origin_as}) { 
+      if ($pt_return->{origin}->{$origin_as}) { #Did we find an AS-key?
         my $max_length = $pt_return->{origin}->{$origin_as}->{max_length};
-        
-        #Check Prefix-length;
-        given ( $max_length <=> $prefix_length ) {
-          when ( $_ == 0 ) {
+        if ( $prefix_length le $max_length ) {      
+          if ( $pt_return->{origin}->{$origin_as}->{implicit} ) {
+            logger("RPKI: $prefix with $origin_as is rpki-valid with an less-spec match!") if $DEBUG;
+            $count_valid_ls++;
+          } else {
             logger("RPKI: $prefix with $origin_as is rpki-valid with an exact match!") if $DEBUG;
             $count_valid++;
           }
-          when ( $_ < 0 ) {
-            logger("RPKI: $prefix with $origin_as is rpki-valid with an less-spec match!") if $DEBUG;
-            $count_valid_ls++;
-          }
-          when ( $_ > 0 ) {
+        } else {
             logger("RPKI: $prefix with $origin_as is rpki-invalid: $prefix_length is longer than max $max_length") if $DEBUG;
             $count_invalid_ml++;
-          } 
         }
-
-      } else {
-        #Look for implicit coverage
-        if ($pt_return->{implicit}->{$origin_as}) { 
-          my $max_length = $pt_return->{implicit}->{$origin_as}->{max_length};
-          
-          #Check Prefix-length;
-          given ( $max_length <=> $prefix_length ) {
-            when ( $_ == 0 ) {
-              logger("RPKI: $prefix with $origin_as is rpki-valid with an exact match!") if $DEBUG;
-              $count_valid++;
-            }
-            when ( $_ < 0 ) {
-              logger("RPKI: $prefix with $origin_as is rpki-valid with an less-spec match!") if $DEBUG;
-              $count_valid_ls++;
-            }
-            when ( $_ > 0 ) {
-              logger("RPKI: $prefix with $origin_as is rpki-invalid: $prefix_length is longer than max $max_length") if $DEBUG;
-              $count_invalid_ml++;
-            } 
-          }
-        } else {
-          
-          logger("RPKI: $prefix with $origin_as is rpki-invalid: AS is not allowed to announce!") if $DEBUG;
-          $count_invalid++;
-          file_logger($RPKI_INV_LOG, "$prefix with $origin_as is invalid!");
-        }
-      }
-    } else { #Prefix not found... booring.
+      } else { 
+        logger("RPKI: $prefix with $origin_as is rpki-invalid: AS is not allowed to announce!") if $DEBUG;
+        $count_invalid++;
+        file_logger($RPKI_INV_LOG, "$prefix with $origin_as is invalid!");
+      } 
+    } else {
       logger("RPKI: $prefix with $origin_as is not found") if $DEBUG;
-      $count_not_found++;   
-    }
+      $count_not_found++;
+    }       
   }
   return {
     valid => $count_valid,
