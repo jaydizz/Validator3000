@@ -30,7 +30,7 @@ The Patricia Trie holds IP-objects. On Match, a hashref is returned, holding val
 use strict;
 use warnings;
 use Getopt::Std;
-use Storable;
+use Storable qw(dclone);
 use Net::Patricia;
 use Term::ANSIColor;
 use Local::addrinfo qw( by_cidr mk_iprange_lite mk_iprange is_subset);
@@ -260,11 +260,12 @@ sub digest_hash_and_write {
   while ( $i < $#sorted ) {
     my $j = $i + 1; #We look at the next entry in the sorted list.
     while ( is_subset($sorted[$j], $sorted[$i] ) ) {
-      if ( !$sorted[$j]->{implicit} ) { #If not defined, we create, ortherwise append
-        $sorted[$j]->{implicit} = $sorted[$i]->{origin};
-      } else {
-        %{$sorted[$j]->{implicit}} = ( %{$sorted[$j]->{implicit}} , %{ $sorted[$i]->{origin} } ) ;
-      }
+
+      my $tmp_hash = dclone( $sorted[$i]->{origin} ); #Create a true copy of our hash.
+      foreach my $as ( keys %$tmp_hash ) {
+         $tmp_hash->{$as}->{implicit} = 1 unless defined $sorted[$j]->{origin}->{$as}; #If an AS is already present in the origins, we don't want to mark it as implicit
+      } 
+      %{ $sorted[$j]->{origin} } = ( %{ $sorted[$j]->{origin} }, %$tmp_hash ); #Append additional Origins.
       $j++;
     }
     $i++;
