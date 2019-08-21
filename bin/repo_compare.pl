@@ -34,6 +34,10 @@ use Net::Patricia;
 use Term::ANSIColor;
 use Data::Dumper;
 use Local::addrinfo qw( by_cidr mk_iprange_lite mk_iprange is_subset);
+
+use InfluxDB::LineProtocol qw(data2line line2data);
+use InfluxDB::HTTP;
+
 use 5.10.0;
 
 my %opts;
@@ -48,6 +52,30 @@ my $pt_rpki_v4 = new Net::Patricia;
 my $pt_rpki_v6 = new Net::Patricia AF_INET6;
 my $pt_irr_v4 = new Net::Patricia;
 my $pt_irr_v6 = new Net::Patricia AF_INET6;
+
+
+#
+# Influx Stuff
+# Connecting to InfluxDB and testing.
+#
+my $METRIC = "repo_compare";
+
+our $INFLUX = InfluxDB::HTTP->new(
+  host => 'localhost',
+  port => 8086,
+);
+logger("Opening Connection to Influx-DB");
+logger("Testing...");
+my $ping = $INFLUX->ping();
+if ($ping) {
+  logger( "Influx Version " . $ping->version . "ready for duty!");
+} else {
+  die "Influx not working. \n";
+}
+
+#
+# Patricia
+#
 
 logger("Retrieving Patricia Tries...");
 
@@ -72,6 +100,10 @@ my $irr_invalid_in_rpki = 0;
 
 logger("Walking rpkiv4 trie and comparing with irrv4");
 
+####################################
+######### Beginning of Main ########
+####################################
+
 $pt_rpki_v4->climb(
   sub {
     $DB::single = 1;
@@ -84,9 +116,28 @@ my $covered_percent   = 100*$rpki_exactly_covering / $rpki_count;
 my $partially_percent   = 100*$rpki_partially_covering / $rpki_count;
 my $not_found_percent = 100*$rpki_not_found_in_irr / $rpki_count;
 my $invalid_percent   = 100*$rpki_invalid_in_irr / $rpki_count;
-#say "Of a total of $rpki_count ROAs,\n $rpki_covered_in_irr ($covered_percent%) \t\t covered in IRR\n $rpki_not_found_in_irr ($not_found_percent%) \t\t not found in IRR \n $rpki_invalid_in_irr ($invalid_percent%) \t\t have invalid irr coverage";
+
+my @influx_lines;
+push @influx_lines, data2line($METRIC, $covered_percent,   { status => 'covered'   }  );
+push @influx_lines, data2line($METRIC, $partially_percent, { status => 'partially' }  );
+push @influx_lines, data2line($METRIC, $not_found_percent, { status => 'note_found'}  );
+push @influx_lines, data2line($METRIC, $invalid_percent,   { status => 'conflict'  }  );
+
+my $res = $INFLUX->write(
+   \@influx_lines,
+   database    => "test_measure"
+  );
+  say "Error writing dataset\n $res" unless ($res);
+
 
 printf("Found a total of %i prefixes in ROAs. Compared to IRR:\n %i (%.2f %%) \t\t\t\t are exactly covered by route-objects\n %i (%.2f %%) \t\t\t\thave more ros than rpki-origins \n %i (%.2f %%) \t\t\t\t are not found as route-object\n %i (%.2f %%) \t\t\t\t are conflicting with route-objects\n", $rpki_count, $rpki_exactly_covering, $covered_percent, $rpki_partially_covering, $partially_percent, $rpki_not_found_in_irr, $not_found_percent, $rpki_invalid_in_irr, $invalid_percent);
+
+
+####################################
+######### END of Main ##############
+####################################
+
+
 sub compare_rpki_with_irr {
   my $node = shift;             # The node returned by the tree climbing
   my $compare_database = shift; # The database to comare against.
