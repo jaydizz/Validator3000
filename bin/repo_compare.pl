@@ -59,6 +59,7 @@ my $pt_irr_v6 = new Net::Patricia AF_INET6;
 # Connecting to InfluxDB and testing.
 #
 my $METRIC = "repo_compare";
+my $METRIC_COUNT = "rpki_refix_count";
 
 our $INFLUX = InfluxDB::HTTP->new(
   host => 'localhost',
@@ -122,6 +123,7 @@ push @influx_lines, data2line($METRIC, $covered_percent,   { status => 'covered'
 push @influx_lines, data2line($METRIC, $partially_percent, { status => 'partially' }  );
 push @influx_lines, data2line($METRIC, $not_found_percent, { status => 'note_found'}  );
 push @influx_lines, data2line($METRIC, $invalid_percent,   { status => 'conflict'  }  );
+push @influx_lines, data2line($METRIC_COUNT, $rpki_count  );
 
 my $res = $INFLUX->write(
    \@influx_lines,
