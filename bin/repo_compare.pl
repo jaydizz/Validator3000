@@ -51,7 +51,7 @@ my $pt_irr_v6 = new Net::Patricia AF_INET6;
 
 logger("Retrieving Patricia Tries...");
 
-$pt_rpki_v4 = retrieve("/tmp/rpki/rpki-patricia-v4.storable");
+$pt_rpki_v4 = retrieve("../stash/rpki-patricia-v4.storable");
 $pt_rpki_v6 = retrieve("../stash/rpki-patricia-v6.storable");
 $pt_irr_v4  = retrieve("../stash/irr-patricia-v4.storable");
 $pt_irr_v6  = retrieve("../stash/irr-patricia-v4.storable");
@@ -59,7 +59,8 @@ $pt_irr_v6  = retrieve("../stash/irr-patricia-v4.storable");
 logger("Done.");
 
 # Which values from the RPKI Trie are present in the IRRs?
-my $rpki_covered_in_irr = 0;
+my $rpki_partially_covering = 0;
+my $rpki_exactly_covering = 0;
 my $rpki_not_found_in_irr = 0;
 my $rpki_invalid_in_irr = 0;
 my $rpki_count = 0;
@@ -79,12 +80,13 @@ $pt_rpki_v4->climb(
 );
 
 
-my $covered_percent   = 100*$rpki_covered_in_irr / $rpki_count;
+my $covered_percent   = 100*$rpki_exactly_covering / $rpki_count;
+my $partially_percent   = 100*$rpki_partially_covering / $rpki_count;
 my $not_found_percent = 100*$rpki_not_found_in_irr / $rpki_count;
 my $invalid_percent   = 100*$rpki_invalid_in_irr / $rpki_count;
 #say "Of a total of $rpki_count ROAs,\n $rpki_covered_in_irr ($covered_percent%) \t\t covered in IRR\n $rpki_not_found_in_irr ($not_found_percent%) \t\t not found in IRR \n $rpki_invalid_in_irr ($invalid_percent%) \t\t have invalid irr coverage";
 
-printf("Found a total of %i prefixes in ROAs. Compared to IRR:\n %i (%.2f \%) \t\t are covered by route-objects\n %i (%.2f \%) \t\t are not found as route-object\n %i (%.2f \%) \t\t are conflicting with route-objects \n are invalid!\n", $rpki_count, $rpki_covered_in_irr, $covered_percent, $rpki_not_found_in_irr, $not_found_percent, $rpki_invalid_in_irr, $invalid_percent);
+printf("Found a total of %i prefixes in ROAs. Compared to IRR:\n %i (%.2f %%) \t\t\t\t are exactly covered by route-objects\n %i (%.2f %%) \t\t\t\thave more ros than rpki-origins \n %i (%.2f %%) \t\t\t\t are not found as route-object\n %i (%.2f %%) \t\t\t\t are conflicting with route-objects\n", $rpki_count, $rpki_exactly_covering, $covered_percent, $rpki_partially_covering, $partially_percent, $rpki_not_found_in_irr, $not_found_percent, $rpki_invalid_in_irr, $invalid_percent);
 sub compare_rpki_with_irr {
   my $node = shift;             # The node returned by the tree climbing
   my $compare_database = shift; # The database to comare against.
@@ -92,38 +94,40 @@ sub compare_rpki_with_irr {
   $rpki_count++;
   $DB::single = 1;
   my $result = $compare_database->match_string($node->{prefix});
-  
+  my $conflict_flag = 0;
+
   # Result holds IRR-Stash  # Result holds IRR-Stash hash
   if ( $result ) { #We found some correspondence
-    my @origin_as_rpki = keys %{ $node->{origin} }; # Holds all possible origin_as from rpki
-    my @origin_as_irr  = keys %{ $result->{origin} }; # Holds all possible origin_as from IRR
-    push @origin_as_rpki, keys %{ $node->{implicit} };
-    push @origin_as_irr, keys %{ $result->{implicit} };
-    my $prefix_length_irr = $result->{length};
-    
-    foreach ( @origin_as_rpki ) {
-      $DB::single = 1;
-      if ( $result->{origin}->{$_} && $node->{origin}->{$_}->{max_length} ge $prefix_length_irr) { 
-        
-        $rpki_covered_in_irr++;
-        return;
-      } elsif ( $result->{implicit}->{$_} && $node->{implicit}->{$_}->{max_length} ge $prefix_length_irr) { 
-        $rpki_covered_in_irr++;
-        return;
+    my $matches = 0;
+    foreach my $origin_as ( keys %{ $node->{origin} } ) {
+      if ( $result->{origin}->{$origin_as} ) {
+        $matches++;
       }
-      
+      if ( $result->{length} > $node->{origin}->{$origin_as}->{max_length} ) {
+        $conflict_flag++;
+      }
     }
-  say " ===========Invalid============";
-  say Dumper ($node, $result);
-  $rpki_invalid_in_irr++;
-  say " =========== END Invalid============";
-  
-  } else {
-    say " ===========NotFound============";
-    say Dumper ($node, $result);
-    say " =========== END NotFound============";
-    $rpki_not_found_in_irr++;
+    if ( $matches == keys %{ $node->{origin} } ) {
+      #say Dumper ($node, $result);
+      $rpki_exactly_covering++;
+      return;
+    }
+    if ( $matches > 1 ) {
+      $rpki_partially_covering++;
+      #say Dumper ($node, $result);
+    }
+    if ( $conflict_flag ) {
+      $rpki_invalid_in_irr++;
+    }
+    #say " ===========Invalid============";
+    #say Dumper ($node, $result);
+    $rpki_invalid_in_irr++;
+    #say " =========== END Invalid============";
   }
+  #say " ===========NotFound============";
+  #say Dumper ($node, $result);
+  #say " =========== END NotFound============";
+  $rpki_not_found_in_irr++;
 }
 
 
