@@ -38,7 +38,7 @@ use Data::Dumper;
 use 5.10.0;
 
 my %opts;
-getopts( 'i:o:db:r:p:', \%opts ) or usage();
+getopts( 'fi:o:db:r:p:', \%opts ) or usage();
 
 our $VERSION = "1.0";
 
@@ -48,7 +48,7 @@ my $rpki_flag = defined $opts{r} ? $opts{r} : 1;
 my $rpki_dir  = $opts{p} || '../db/rpki/';
 my $output_dir = $opts{o} || '../stash/';
 my $debug_flag = $opts{d} || undef;
-
+my $force      = $opts{f} || 0;
 print $irr_dir; 
 my $output_files = {
   rpki_out_v4    => "$output_dir/rpki-patricia-v4.storable",
@@ -77,6 +77,7 @@ my @rpki_files = glob("$rpki_dir*");
 # Remove directories and sh scripts.
 @irr_files = grep { -f $_ } @irr_files;
 @irr_files = grep {!/\.sh/} @irr_files;
+@irr_files = grep {!/\.gz/} @irr_files;
 @rpki_files = grep { -f $_ } @rpki_files;
 @rpki_files = grep {!/\.sh/} @rpki_files;
 
@@ -89,6 +90,9 @@ print_intro_header();
 # Iterating over all routing-dbs and parsing for route-objects.
 # This populates the stashes for v4 and v6.
 #
+if ( $#irr_files < 3 && !$force ) {
+  die "Found less than three irrs. Use Force. Aborting."
+};
 if ($irr_flag) {
   print_header("IRR");
   foreach my $file (@irr_files) {

@@ -141,8 +141,7 @@ while(1) {
     });
     $tx->on(finish => sub {
       my ($tx, $code, $reason) = @_;
-      logger("WebSocket closed with status $code.", 'red');
-      $DB::single = 1;
+      logger("WebSocket closed with status $code, $reason", 'red');
       Mojo::IOLoop->stop();
     });
     $tx->send($settings);

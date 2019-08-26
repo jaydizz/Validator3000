@@ -45,7 +45,7 @@ getopts( 'i:o:d:b:r', \%opts ) or usage();
 
 our $VERSION = "1.0";
 
-my $input_dir = $opts{i} || '../stash/';
+my $input_dir = $opts{i} || '/home/debian/ba/stash/';
 
 
 my $pt_rpki_v4 = new Net::Patricia;
@@ -80,10 +80,10 @@ if ($ping) {
 
 logger("Retrieving Patricia Tries...");
 
-$pt_rpki_v4 = retrieve("../stash/rpki-patricia-v4.storable");
-$pt_rpki_v6 = retrieve("../stash/rpki-patricia-v6.storable");
-$pt_irr_v4  = retrieve("../stash/irr-patricia-v4.storable");
-$pt_irr_v6  = retrieve("../stash/irr-patricia-v4.storable");
+$pt_rpki_v4 = retrieve("$input_dir/rpki-patricia-v4.storable");
+$pt_rpki_v6 = retrieve("$input_dir/rpki-patricia-v6.storable");
+$pt_irr_v4  = retrieve("$input_dir/irr-patricia-v4.storable");
+$pt_irr_v6  = retrieve("$input_dir/irr-patricia-v6.storable");
 
 logger("Done.");
 
@@ -119,11 +119,47 @@ my $not_found_percent = 100*$rpki_not_found_in_irr / $rpki_count;
 my $invalid_percent   = 100*$rpki_invalid_in_irr / $rpki_count;
 
 my @influx_lines;
-push @influx_lines, data2line($METRIC, $covered_percent,   { status => 'covered'   }  );
-push @influx_lines, data2line($METRIC, $partially_percent, { status => 'partially' }  );
-push @influx_lines, data2line($METRIC, $not_found_percent, { status => 'note_found'}  );
-push @influx_lines, data2line($METRIC, $invalid_percent,   { status => 'conflict'  }  );
-push @influx_lines, data2line($METRIC_COUNT, $rpki_count  );
+push @influx_lines, data2line($METRIC, $covered_percent,   { af => '4', status => 'covered'   }  );
+push @influx_lines, data2line($METRIC, $partially_percent, { af => '4', status => 'partially' }  );
+push @influx_lines, data2line($METRIC, $not_found_percent, { af => '4', status => 'note_found'}  );
+push @influx_lines, data2line($METRIC, $invalid_percent,   { af => '4', status => 'conflict'  }  );
+push @influx_lines, data2line($METRIC_COUNT, $rpki_count, { af => '4'} );
+
+my $res = $INFLUX->write(
+   \@influx_lines,
+   database    => "test_measure"
+  );
+  say "Error writing dataset\n $res" unless ($res);
+
+
+printf("Found a total of %i prefixes in ROAs. Compared to IRR:\n %i (%.2f %%) \t\t\t\t are exactly covered by route-objects\n %i (%.2f %%) \t\t\t\thave more ros than rpki-origins \n %i (%.2f %%) \t\t\t\t are not found as route-object\n %i (%.2f %%) \t\t\t\t are conflicting with route-objects\n", $rpki_count, $rpki_exactly_covering, $covered_percent, $rpki_partially_covering, $partially_percent, $rpki_not_found_in_irr, $not_found_percent, $rpki_invalid_in_irr, $invalid_percent);
+
+
+$rpki_partially_covering = 0;
+$rpki_exactly_covering = 0;
+$rpki_not_found_in_irr = 0;
+$rpki_invalid_in_irr = 0;
+$rpki_count = 0;
+
+$pt_rpki_v6->climb(
+  sub {
+    $DB::single = 1;
+    compare_rpki_with_irr($_[0], $pt_irr_v6);
+  }
+);
+
+
+$covered_percent   = 100*$rpki_exactly_covering / $rpki_count;
+$partially_percent   = 100*$rpki_partially_covering / $rpki_count;
+$not_found_percent = 100*$rpki_not_found_in_irr / $rpki_count;
+$invalid_percent   = 100*$rpki_invalid_in_irr / $rpki_count;
+
+@influx_lines = ();
+push @influx_lines, data2line($METRIC, $covered_percent,   { af => '6', status => 'covered'   }  );
+push @influx_lines, data2line($METRIC, $partially_percent, { af => '6', status => 'partially' }  );
+push @influx_lines, data2line($METRIC, $not_found_percent, { af => '6', status => 'note_found'}  );
+push @influx_lines, data2line($METRIC, $invalid_percent,   { af => '6', status => 'conflict'  }  );
+push @influx_lines, data2line($METRIC_COUNT, $rpki_count, {af => '6'}  );
 
 my $res = $INFLUX->write(
    \@influx_lines,
